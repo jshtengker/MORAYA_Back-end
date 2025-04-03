@@ -4,14 +4,14 @@ ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 require_once __DIR__ . '/../core/Database.php'; // Include Database class
-require_once __DIR__ . '/../model/Nurse_model.php'; // Include InputNurse model
+require_once __DIR__ . '/../model/Admin_model.php'; // Include Admin model
 
 
 header('Content-Type: application/json');
 
-class Nurse {
+class Admin {
     private $db;
-    private $Nurse_model;
+    private $Admin_model;
 
     public function __construct() {
         try {
@@ -19,8 +19,8 @@ class Nurse {
             $database = new Database();
             $this->db = $database->getConnection();
 
-            // Instantiate the InputNurse model
-            $this->Nurse_model = new Nurse_Model($this->db);
+            // Instantiate the Admin model
+            $this->Admin_model = new Admin_Model($this->db);
         } catch (Exception $e) {
             echo json_encode(['status' => 'error', 'message' => 'Database connection failed: ' . $e->getMessage()]);
             exit();
@@ -43,7 +43,7 @@ class Nurse {
                 return;
             }
 
-            $result = $this->Nurse_model->getBedQuantity($ruangan);
+            $result = $this->Admin_model->getBedQuantity($ruangan);
 
             if ($result) {
                 echo json_encode(['status' => 'success', 'jumlah bed' .' '. $ruangan => $result]);
@@ -57,90 +57,26 @@ class Nurse {
         }
     }
 
-    // inserting data
-    public function insert_nurse() {
-        try {
-            // Debug incoming POST data
-            error_log('POST Data: ' . print_r($_POST, true));
-    
-            // Get user_id from session (or request if needed)
-            $user_id = isset($_POST['user_id']) ? intval($_POST['user_id']) : null;
-            $tanggal = isset($_POST['tanggal']) ? trim($_POST['tanggal']) : date('Y-m-d'); // Use current date if not provided
-    
-            // Debugging user_id
-            error_log('User ID Diterima: ' . $user_id);
-            error_log('Tanggal Diterima: ' . $tanggal);
-    
-            // Validate required fields
-            if (empty($user_id)) {
-                http_response_code(400);
-                echo json_encode(['status' => 'error', 'message' => 'User ID harus diberikan']);
-                return;
-            }
-    
-            // Prepare data for insertion
-            $data = [
-                'user_id' => $user_id, // No need for ruangan
-                'pasien_awal' => filter_var($_POST['pasien_awal'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_masuk' => filter_var($_POST['pasien_masuk'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_pindahan' => filter_var($_POST['pasien_pindahan'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_dipindahkan' => filter_var($_POST['pasien_dipindahkan'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_hidup' => filter_var($_POST['pasien_hidup'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_rujuk' => filter_var($_POST['pasien_rujuk'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_aps' => filter_var($_POST['pasien_aps'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_lain_lain' => filter_var($_POST['pasien_lain_lain'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_meninggal_kurang_dari_48_jam' => filter_var($_POST['pasien_meninggal_kurang_dari_48_jam'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_meninggal_lebih_dari_48_jam' => filter_var($_POST['pasien_meninggal_lebih_dari_48_jam'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_lama_dirawat' => filter_var($_POST['pasien_lama_dirawat'], FILTER_SANITIZE_NUMBER_INT),
-                'pasien_keluar_masuk_hari_sama' => filter_var($_POST['pasien_keluar_masuk_hari_sama'], FILTER_SANITIZE_NUMBER_INT),
-                'kelas_1' => filter_var($_POST['kelas_1'], FILTER_SANITIZE_NUMBER_INT),
-                'kelas_2' => filter_var($_POST['kelas_2'], FILTER_SANITIZE_NUMBER_INT),
-                'kelas_3' => filter_var($_POST['kelas_3'], FILTER_SANITIZE_NUMBER_INT),
-                'tanggal' => $tanggal,
-            ];
-    
-            // Debugging inserted data
-            error_log('Data yang akan di-insert: ' . print_r($data, true));
-    
-            // Insert into input_nurses table
-            if ($this->Nurse_model->insert($data)) {
-                echo json_encode(['status' => 'success', 'message' => 'Data inserted successfully']);
-            } else {
-                http_response_code(500);
-                echo json_encode(['status' => 'error', 'message' => 'Data insertion failed']);
-            }
-    
-        } catch (Exception $e) {
-            error_log('Exception: ' . $e->getMessage());
-            http_response_code(500);
-            echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
-        }
-    }
 
     // updating data
-    public function update_nurse() {
+    public function update_admin() {
         try {
             // Debug incoming POST data
             error_log('POST Data: ' . print_r($_POST, true));
     
-            // Get user_id from the POST data
-            $user_id = isset($_POST['user_id']) ? intval($_POST['user_id']) : null;
-            $tanggal = isset($_POST['tanggal']) ? trim($_POST['tanggal']) : date('Y-m-d'); // Default to current date if not provided
-    
-            // Debugging user_id and tanggal
-            error_log('User ID Diterima: ' . $user_id);
-            error_log('Tanggal Diterima: ' . $tanggal);
+            // Get ruangan and tanggal from the request
+            $ruangan = isset($_POST['ruangan']) ? trim($_POST['ruangan']) : null;
+            $tanggal = isset($_POST['tanggal']) ? trim($_POST['tanggal']) : date('Y-m-d'); // Default to current date
     
             // Validate required fields
-            if (empty($user_id)) {
+            if (empty($ruangan)) {
                 http_response_code(400);
-                echo json_encode(['status' => 'error', 'message' => 'User ID harus diberikan']);
+                echo json_encode(['status' => 'error', 'message' => 'Ruangan harus diberikan']);
                 return;
             }
     
             // Prepare the data for updating
             $data = [
-                'user_id' => $user_id, 
                 'pasien_awal' => filter_var($_POST['pasien_awal'], FILTER_SANITIZE_NUMBER_INT),
                 'pasien_masuk' => filter_var($_POST['pasien_masuk'], FILTER_SANITIZE_NUMBER_INT),
                 'pasien_pindahan' => filter_var($_POST['pasien_pindahan'], FILTER_SANITIZE_NUMBER_INT),
@@ -162,8 +98,8 @@ class Nurse {
             // Debugging data before update
             error_log('Data yang akan di-update: ' . print_r($data, true));
     
-            // Call the model to perform the update
-            if ($this->Nurse_model->update($tanggal, $data)) {
+            // Call the model function to perform the update
+            if ($this->Admin_model->update($tanggal, $data, $ruangan)) {
                 // Success response
                 echo json_encode(['status' => 'success', 'message' => 'Data updated successfully']);
             } else {
@@ -179,6 +115,7 @@ class Nurse {
             echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
         }
     }
+    
     
     
 }
