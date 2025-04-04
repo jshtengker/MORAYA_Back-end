@@ -153,7 +153,91 @@ class Guest {
             echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
         }
     }
+
+    // Fetch stats rs daily
+    public function get_stats_data_rs_daily() {
+        try {
+            $date = $_POST['tanggal'] ?? null;
+            if (empty($date)) {
+                echo json_encode(['status' => 'error', 'message' => 'Date parameter is required']);
+                http_response_code(400); // Bad Request
+                return;
+            }
+
+            $result = $this->Guest_model->calculate_stats_rs_daily($date);
+
+            if ($result) {
+                echo json_encode(['status' => 'success', 'data' => $result]);
+                http_response_code(200);
+            } else {
+                echo json_encode(['status' => 'error', 'message' => 'No data found']);
+                http_response_code(404); // Not Found
+            }
+        } catch (Exception $e) {
+            echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
+            http_response_code(500); // Internal Server Error
+        }
+    }
+
+    // Fetch stats rs monthly
+    public function get_stats_data_rs_monthly() {
+        try {
+            // Retrieve the month parameter from the POST data
+            $month = $_POST['month'] ?? null;
     
+            // If the month is not provided, return an error
+            if (empty($month)) {
+                echo json_encode(['status' => 'error', 'message' => 'Month parameter is required']);
+                return;
+            }
+    
+            // Get the current year
+            $year = date('Y'); 
+    
+            // Call the model method to calculate the statistics for the provided month and current year
+            $result = $this->Guest_model->calculateStatsMonthly($month);
+    
+            // If the result is not empty, return the data as a JSON response
+            if ($result) {
+                echo json_encode($result);
+                http_response_code(200);  // OK
+            } else {
+                echo json_encode(['status' => 'error', 'message' => 'No data found. Check if all data for that month is already inserted!']);
+                http_response_code(404);  // Not Found
+            }
+        } catch (Exception $e) {
+            // If an error occurs, catch the exception and return an error message
+            echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
+            http_response_code(500);  // Internal Server Error
+        }
+    }
+
+    // Fetch stats rs by range date
+    public function get_stats_data_rs_range() {
+        // Retrieve input from the request (e.g., from $_POST)
+        $startDate = isset($_POST['start_date']) ? $_POST['start_date'] : null;
+        $endDate = isset($_POST['end_date']) ? $_POST['end_date'] : null;
+
+        // Validate inputs
+        if (empty($startDate) || empty($endDate)) {
+            echo json_encode(['status' => 'error', 'message' => 'Both start_date and end_date are required.']);
+            return false;
+        }
+
+        // Call the model function to calculate statistics
+        $result = $this->Guest_model->calculateStatsInRange($startDate, $endDate);
+
+        // If the model function fails, it already outputs the error, so no additional handling is needed
+        if (!$result || $result['status'] === 'error') {
+            echo json_encode($result);
+            return false;
+        }
+
+        // Return success response (already handled inside model)
+        echo json_encode($result, JSON_PRETTY_PRINT);
+        return true;
+    }
+
     
 }
 

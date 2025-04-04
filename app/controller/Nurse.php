@@ -57,6 +57,67 @@ class Nurse {
         }
     }
 
+    // check data existence
+    public function check_data_exist() {
+        // Get input from request (assuming POST method)
+        $date = isset($_POST['date']) ? $_POST['date'] : null;
+        $user_id = isset($_POST['user_id']) ? $_POST['user_id'] : null;
+
+        // Validate inputs
+        if (empty($date) || empty($user_id)) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Date and user_id are required.'
+            ]);
+            return;
+        }
+
+        // Call the model's dataExists method
+        $exists = $this->Nurse_model->dataExists($date, $user_id);
+
+        // Handle cases when model returns an error
+        if (is_array($exists) && isset($exists['status']) && $exists['status'] === 'error') {
+            echo json_encode($exists);
+            return;
+        }
+
+        // Return success response with existence check
+        echo json_encode([
+            'status' => 'success',
+            'data' => ['exists' => $exists]
+        ]);
+    }
+
+    // get data by date and user_id
+    public function get_input_data() {
+        // Get input from request (assuming POST method)
+        $date = isset($_POST['date']) ? $_POST['date'] : null;
+        $user_id = isset($_POST['user_id']) ? $_POST['user_id'] : null;
+
+        // Validate inputs
+        if (empty($date) || empty($user_id)) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Date and User ID are required.'
+            ]);
+            return;
+        }
+
+        // Call the model's method to fetch data
+        $response = $this->Nurse_model->getDataByDateAndUser($date, $user_id);
+
+        // Check if data is found
+        if (empty($response)) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'No data found for the given date and user ID.'
+            ]);
+        } else {
+            // Return the data if found
+            echo json_encode($response);
+        }
+    }
+
     // inserting data
     public function insert_nurse() {
         try {
@@ -179,6 +240,37 @@ class Nurse {
             echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
         }
     }
+
+    // mengambil pasien yang masih dirawat kemarin sebagai pasien awal hari ini
+    public function get_pasien_masih_dirawat_kemarin() {
+        // Get input from request (assuming POST method)
+        $date = isset($_POST['date']) ? $_POST['date'] : null;
+        $user_id = isset($_POST['user_id']) ? $_POST['user_id'] : null;
+    
+        // Validate inputs
+        if (empty($date) || empty($user_id)) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Date and User ID are required.'
+            ]);
+            return;
+        }
+    
+        // Pass the exact date to the model (model handles conversion)
+        $response = $this->Nurse_model->getYesterdayPatients($user_id, $date);
+    
+        // Check if data is found correctly
+        if (!isset($response['pasien_masih_dirawat'])) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'No data found for the given date and user ID.'
+            ]);
+        } else {
+            // Return the data if found
+            echo json_encode($response);
+        }
+    }
+    
     
     
 }

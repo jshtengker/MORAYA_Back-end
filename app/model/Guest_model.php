@@ -203,7 +203,7 @@ class Guest_model {
             $pasien_hidup_total = 0;
             $pasien_rujuk_total = 0;
             $pasien_aps_total = 0;
-            $pasien_aps_lain_lain = 0;
+            $pasien_lain_lain_total = 0;
             $pasien_lama_dirawat_total = 0;
             $pasien_meninggal_kurang_dari_48_jam_total = 0;
             $pasien_meninggal_lebih_dari_48_jam_total = 0;
@@ -395,34 +395,59 @@ class Guest_model {
 
     // calculate indicators rs daily
     public function calculate_stats_rs_daily($date) {
-        // Validate the date format (YYYY-MM-DD)
-        if (!$this->validate_date($date)) {
-            echo json_encode(['status' => 'error', 'message' => 'Invalid date format. Expected format is YYYY-MM-DD.']);
+        // Step 1: Get all unique rooms from the users table (excluding admins)
+        $queryRooms = "SELECT DISTINCT ruangan FROM users WHERE ruangan IS NOT NULL AND role != 'admin'";
+        $stmtRooms = $this->conn->prepare($queryRooms);
+    
+        if (!$stmtRooms || !$stmtRooms->execute()) {
+            echo json_encode(['status' => 'error', 'message' => 'Failed to fetch room data']);
             return false;
         }
     
-        // Step 1: Check if there are records for the given date
-        $queryCheck = "SELECT COUNT(*) AS dataCount FROM input_nurse WHERE tanggal = ?";
-        $stmtCheck = $this->conn->prepare($queryCheck);
-        if (!$stmtCheck) {
-            echo json_encode(['status' => 'error', 'message' => 'Prepare failed: ' . $this->conn->error]);
+        $resultRooms = $stmtRooms->get_result();
+        $rooms = [];
+        while ($row = $resultRooms->fetch_assoc()) {
+            $rooms[] = $row['ruangan'];
+        }
+    
+        // Step 2: Get rooms that have data in input_nurse for the given date (excluding admins)
+        $queryExistingRooms = "
+            SELECT DISTINCT u.ruangan 
+            FROM input_nurse i
+            JOIN users u ON i.user_id = u.user_id 
+            WHERE i.tanggal = ? AND u.role != 'admin'";
+        
+        $stmtExistingRooms = $this->conn->prepare($queryExistingRooms);
+    
+        if (!$stmtExistingRooms) {
+            echo json_encode(['status' => 'error', 'message' => 'Failed to prepare query for existing room data']);
             return false;
         }
     
-        $stmtCheck->bind_param("s", $date);
-        if (!$stmtCheck->execute()) {
-            echo json_encode(['status' => 'error', 'message' => 'Execute failed: ' . $stmtCheck->error]);
+        $stmtExistingRooms->bind_param("s", $date);
+        if (!$stmtExistingRooms->execute()) {
+            echo json_encode(['status' => 'error', 'message' => 'Failed to execute query for existing room data']);
             return false;
         }
     
-        $resultCheck = $stmtCheck->get_result();
-        $dataCheck = $resultCheck->fetch_assoc();
-        if ((int)$dataCheck['dataCount'] === 0) {
-            echo json_encode(['status' => 'error', 'message' => 'No data found for the given date.']);
+        $resultExistingRooms = $stmtExistingRooms->get_result();
+        $existingRooms = [];
+        while ($row = $resultExistingRooms->fetch_assoc()) {
+            $existingRooms[] = $row['ruangan'];
+        }
+    
+        // Step 3: Identify missing rooms
+        $missingRooms = array_diff($rooms, $existingRooms);
+        if (!empty($missingRooms)) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Data is missing for some rooms on the given date.',
+                'missing_rooms' => array_values($missingRooms)
+            ]);
             return false;
         }
     
-        // Step 2: Calculate daily statistics by summing up the data from the `input_nurse` table
+        // Step 4: Proceed with calculations since all rooms have data
         $query = "
             SELECT 
                 SUM(pasien_awal + pasien_masuk + pasien_pindahan) AS PatientDays,
@@ -451,7 +476,6 @@ class Guest_model {
         $totalPatientDays = $totalDischarges = $totalDeaths = $totalDeaths48 = $totalPatientTreatment = 0;
         $bedQuantity = 0;
     
-        // Fetch total data from the input_nurse table
         if ($data = $result->fetch_assoc()) {
             $totalPatientDays += (int) $data['PatientDays'];
             $totalDischarges += (int) $data['Discharges'];
@@ -460,16 +484,11 @@ class Guest_model {
             $totalPatientTreatment += (int) $data['PatientTreatment'];
         }
     
-        // Step 3: Sum all beds for the day across all rooms (tables)
+        // Step 5: Get total beds
         $queryBeds = "SELECT SUM(jumlah_bed) AS TotalBeds FROM bed";
         $stmtBeds = $this->conn->prepare($queryBeds);
-        if (!$stmtBeds) {
-            echo json_encode(['status' => 'error', 'message' => 'Prepare failed: ' . $this->conn->error]);
-            return false;
-        }
-    
-        if (!$stmtBeds->execute()) {
-            echo json_encode(['status' => 'error', 'message' => 'Execute failed: ' . $stmtBeds->error]);
+        if (!$stmtBeds || !$stmtBeds->execute()) {
+            echo json_encode(['status' => 'error', 'message' => 'Failed to fetch bed data']);
             return false;
         }
     
@@ -478,15 +497,170 @@ class Guest_model {
             $bedQuantity = (int) $bedData['TotalBeds'];
         }
     
-        // Step 4: Calculate the statistics
-        $totalDays = 1;  // Since it's daily, we just use 1 day
+        // Step 6: Calculate statistics
+        $totalDays = 1;
         list($BOR, $AVLOS, $TOI, $BTO, $GDR, $NDR) = $this->calculate_stats_by_room(
             $totalPatientDays, $bedQuantity, $totalDischarges, $totalDeaths, $totalDeaths48, $totalDays, $totalPatientTreatment
         );
     
-        // Step 5: Return the calculated statistics as JSON
+        // Step 7: Return calculated statistics
         $stats = [
             'date' => $date,
+            'BOR' => $BOR,
+            'AVLOS' => $AVLOS,
+            'TOI' => $TOI,
+            'BTO' => $BTO,
+            'GDR' => $GDR,
+            'NDR' => $NDR,
+            'totalBeds' => $bedQuantity
+        ];
+    
+        echo json_encode(['status' => 'success', 'data' => $stats]);
+        return true;
+    }
+    private function calculate_stats_by_room($totalPatientDays, $totalBeds, $totalDischarges, $totalDeaths, $totalDeaths48, $totalDays, $totalPatientTreatment) {
+        $totalBedDays = $totalBeds * $totalDays;
+        $BOR = $totalBedDays > 0 ? round(($totalPatientDays / $totalBedDays) * 100) : 0; // Bed Occupancy Rate
+        $AVLOS = $totalDischarges > 0 ? round($totalPatientTreatment / $totalDischarges) : 0; // Average Length of Stay
+        $TOI = $totalDischarges > 0 ? round(($totalBedDays - $totalPatientDays) / $totalDischarges) : 0; // Turnover Interval
+        $BTO = $totalBeds > 0 ? round($totalDischarges / $totalBeds) : 0; // Bed Turnover Rate
+        $GDR = $totalDischarges > 0 ? round(($totalDeaths / $totalDischarges) * 1000) : 0; // Gross Death Rate
+        $NDR = $totalDischarges > 0 ? round(($totalDeaths48 / $totalDischarges) * 1000) : 0; // Net Death Rate
+        return [$BOR, $AVLOS, $TOI, $BTO, $GDR, $NDR];
+    }
+
+    // calculate indicators rs monthly
+    public function calculateStatsMonthly($month) {
+        // Get the current year
+        $currentYear = date('Y');
+    
+        // Ensure the month is properly formatted as two digits
+        $month = str_pad($month, 2, '0', STR_PAD_LEFT);
+        
+        // Get the total number of days in the given month
+        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $currentYear);
+        $monthPattern = "$currentYear-$month-%"; // Format: YYYY-MM-%    
+    
+        // Step 1: Get all unique rooms from the users table (excluding admins)
+        $queryRooms = "SELECT DISTINCT ruangan FROM users WHERE ruangan IS NOT NULL AND role != 'admin'";
+        $stmtRooms = $this->conn->prepare($queryRooms);
+        
+        if (!$stmtRooms || !$stmtRooms->execute()) {
+            echo json_encode(['status' => 'error', 'message' => 'Failed to fetch room data']);
+            return false;
+        }
+        
+        $resultRooms = $stmtRooms->get_result();
+        $rooms = [];
+        while ($row = $resultRooms->fetch_assoc()) {
+            $rooms[] = $row['ruangan'];
+        }
+    
+        // Step 2: Get all the days in the month
+        $allDaysInMonth = [];
+        $currentDay = "$currentYear-$month-01";
+        for ($i = 0; $i < $daysInMonth; $i++) {
+            $allDaysInMonth[] = date('Y-m-d', strtotime("$currentDay +$i days"));
+        }
+
+        // Step 3: Check for missing data for each room per day in the month
+        $missingData = [];
+        foreach ($rooms as $room) {
+            $missingDates = [];
+            foreach ($allDaysInMonth as $day) {
+                // Query to check if data exists for this room and day
+                $queryCheck = "SELECT COUNT(*) AS dataCount FROM input_nurse i
+                               JOIN users u ON i.user_id = u.user_id
+                               WHERE u.ruangan = ? AND i.tanggal = ?";
+                $stmtCheck = $this->conn->prepare($queryCheck);
+                $stmtCheck->bind_param("ss", $room, $day);
+    
+                if (!$stmtCheck->execute()) {
+                    echo json_encode(['status' => 'error', 'message' => 'Execute failed: ' . $stmtCheck->error]);
+                    return false;
+                }
+    
+                $resultCheck = $stmtCheck->get_result();
+                $dataCheck = $resultCheck->fetch_assoc();
+    
+                // If no data exists for this room and day, mark it as missing
+                if ($dataCheck['dataCount'] == 0) {
+                    $missingDates[] = $day;
+                }
+            }
+    
+            // If there are missing dates for this room, store them in the missingData array
+            if (!empty($missingDates)) {
+                $missingData[$room] = $missingDates;
+            }
+        }
+    
+        // Step 4: If there are missing dates, return them
+        if (!empty($missingData)) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Data is missing for the following rooms on the given dates:',
+                'missing_data' => $missingData
+            ]);
+            return false;
+        }
+    
+        // Step 5: Calculate the monthly statistics (for all rooms combined)
+        $totalPatientDays = $totalDischarges = $totalDeaths = $totalDeaths48 = $totalPatientTreatment = 0;
+        
+        // Get total bed count inside the calculateStatsMonthly function
+        $queryBeds = "SELECT SUM(jumlah_bed) AS TotalBeds FROM bed";
+        $stmtBeds = $this->conn->prepare($queryBeds);
+        if (!$stmtBeds || !$stmtBeds->execute()) {
+            echo json_encode(['status' => 'error', 'message' => 'Failed to fetch bed data']);
+            return false;
+        }
+    
+        $resultBeds = $stmtBeds->get_result();
+        $bedData = $resultBeds->fetch_assoc();
+        $bedQuantity = (int) $bedData['TotalBeds']; // Bed quantity is constant for the month
+    
+        // Calculate statistics for the given month for all rooms
+        $queryStats = "
+            SELECT 
+                SUM(pasien_awal + pasien_masuk + pasien_pindahan) AS PatientDays,
+                SUM(pasien_dipindahkan + pasien_hidup + pasien_rujuk + pasien_aps + pasien_lain_lain + pasien_meninggal_kurang_dari_48_jam + pasien_meninggal_lebih_dari_48_jam) AS Discharges,
+                SUM(pasien_meninggal_kurang_dari_48_jam + pasien_meninggal_lebih_dari_48_jam) AS Deaths,
+                SUM(pasien_meninggal_lebih_dari_48_jam) AS Deaths48,
+                SUM(pasien_lama_dirawat) AS PatientTreatment
+            FROM input_nurse i
+            JOIN users u ON i.user_id = u.user_id
+            WHERE i.tanggal LIKE ? AND u.ruangan IS NOT NULL AND u.role != 'admin'";
+    
+        $stmtStats = $this->conn->prepare($queryStats);
+        $stmtStats->bind_param("s", $monthPattern);
+        if (!$stmtStats->execute()) {
+            echo json_encode(['status' => 'error', 'message' => 'Execute failed: ' . $stmtStats->error]);
+            return false;
+        }
+    
+        $resultStats = $stmtStats->get_result();
+        while ($data = $resultStats->fetch_assoc()) {
+            $totalPatientDays += (int) $data['PatientDays'];
+            $totalDischarges += (int) $data['Discharges'];
+            $totalDeaths += (int) $data['Deaths'];
+            $totalDeaths48 += (int) $data['Deaths48'];
+            $totalPatientTreatment += (int) $data['PatientTreatment'];
+        }
+    
+        // Step 6: Calculate statistics
+        $totalDays = $daysInMonth;
+        $BOR = ($totalPatientDays / ($bedQuantity * $totalDays)) * 100;
+        $AVLOS = $totalPatientDays / $totalDischarges;
+        $TOI = $totalPatientDays / $totalDischarges;
+        $BTO = $totalPatientDays / $bedQuantity;
+        $GDR = $totalDischarges / $totalPatientDays;
+        $NDR = $totalDeaths / $totalDischarges;
+    
+        // Step 7: Return the calculated statistics
+        $stats = [
+            'month' => $month,
+            'year' => $currentYear,
             'BOR' => $BOR,
             'AVLOS' => $AVLOS,
             'TOI' => $TOI,
@@ -498,20 +672,150 @@ class Guest_model {
         echo json_encode(['status' => 'success', 'data' => $stats]);
         return true;
     }
+
+    // calculate indicators rs by range date
+    public function calculateStatsInRange($startDate, $endDate) {
+        // Validate date format
+        $format = 'Y-m-d';
+        $startDateObj = DateTime::createFromFormat($format, $startDate);
+        $endDateObj = DateTime::createFromFormat($format, $endDate);
+        
+        if (!$startDateObj || !$endDateObj || $startDateObj->format($format) !== $startDate || $endDateObj->format($format) !== $endDate) {
+            return ['status' => 'error', 'message' => 'Invalid date format. Expected format is YYYY-MM-DD.'];
+        }
     
-    private function calculate_stats_by_room($totalPatientDays, $totalBeds, $totalDischarges, $totalDeaths, $totalDeaths48, $totalDays, $totalPatientTreatment) {
-        $totalBedDays = $totalBeds * $totalDays;
+        // Ensure the start date is not after the end date
+        if ($startDateObj > $endDateObj) {
+            return ['status' => 'error', 'message' => 'Start date cannot be after the end date.'];
+        }
+    
+        // Step 1: Get all unique rooms from users table (excluding admins)
+        $queryRooms = "SELECT DISTINCT ruangan FROM users WHERE ruangan IS NOT NULL AND role != 'admin'";
+        $stmtRooms = $this->conn->prepare($queryRooms);
+        
+        if (!$stmtRooms || !$stmtRooms->execute()) {
+            return ['status' => 'error', 'message' => 'Failed to fetch room data'];
+        }
+        
+        $resultRooms = $stmtRooms->get_result();
+        $rooms = [];
+        while ($row = $resultRooms->fetch_assoc()) {
+            $rooms[] = $row['ruangan'];
+        }
+    
+        // Step 2: Generate all dates in the given range
+        $allDaysInRange = [];
+        $currentDay = clone $startDateObj;
+        while ($currentDay <= $endDateObj) {
+            $allDaysInRange[] = $currentDay->format('Y-m-d');
+            $currentDay->modify('+1 day');
+        }
+    
+        // Step 3: Check for missing data for each room
+        $missingData = [];
+        foreach ($rooms as $room) {
+            $queryCheck = "
+                SELECT DISTINCT tanggal FROM input_nurse i
+                JOIN users u ON i.user_id = u.user_id
+                WHERE u.ruangan = ? AND i.tanggal BETWEEN ? AND ?
+            ";
+            $stmtCheck = $this->conn->prepare($queryCheck);
+            $stmtCheck->bind_param("sss", $room, $startDate, $endDate);
+            
+            if (!$stmtCheck->execute()) {
+                return ['status' => 'error', 'message' => 'Execute failed: ' . $stmtCheck->error];
+            }
+    
+            $resultCheck = $stmtCheck->get_result();
+            $availableDates = [];
+            while ($row = $resultCheck->fetch_assoc()) {
+                $availableDates[] = $row['tanggal'];
+            }
+    
+            // Find missing dates for this room
+            $missingDates = array_diff($allDaysInRange, $availableDates);
+            if (!empty($missingDates)) {
+                $missingData[$room] = array_values($missingDates);
+            }
+        }
+    
+        // Step 4: If there are missing dates, return them
+        if (!empty($missingData)) {
+            return [
+                'status' => 'error',
+                'message' => 'Data is missing for the following rooms on the given dates:',
+                'missing_data' => $missingData
+            ];
+        }
+    
+        // Step 5: Get total bed count
+        $queryBeds = "SELECT SUM(jumlah_bed) AS TotalBeds FROM bed";
+        $stmtBeds = $this->conn->prepare($queryBeds);
+        if (!$stmtBeds || !$stmtBeds->execute()) {
+            return ['status' => 'error', 'message' => 'Failed to fetch bed data'];
+        }
+    
+        $resultBeds = $stmtBeds->get_result();
+        $bedData = $resultBeds->fetch_assoc();
+        $bedQuantity = (int) $bedData['TotalBeds'];
+    
+        // Step 6: Calculate statistics for all rooms
+        $queryStats = "
+            SELECT 
+                SUM(pasien_awal + pasien_masuk + pasien_pindahan) AS PatientDays,
+                SUM(pasien_dipindahkan + pasien_hidup + pasien_rujuk + pasien_aps + pasien_lain_lain + pasien_meninggal_kurang_dari_48_jam + pasien_meninggal_lebih_dari_48_jam) AS Discharges,
+                SUM(pasien_meninggal_kurang_dari_48_jam + pasien_meninggal_lebih_dari_48_jam) AS Deaths,
+                SUM(pasien_meninggal_lebih_dari_48_jam) AS Deaths48,
+                SUM(pasien_lama_dirawat) AS PatientTreatment
+            FROM input_nurse i
+            JOIN users u ON i.user_id = u.user_id
+            WHERE i.tanggal BETWEEN ? AND ? AND u.ruangan IS NOT NULL AND u.role != 'admin'";
+    
+        $stmtStats = $this->conn->prepare($queryStats);
+        $stmtStats->bind_param("ss", $startDate, $endDate);
+        if (!$stmtStats->execute()) {
+            return ['status' => 'error', 'message' => 'Execute failed: ' . $stmtStats->error];
+        }
+    
+        $resultStats = $stmtStats->get_result();
+        $stats = $resultStats->fetch_assoc();
+    
+        // Step 7: Convert fetched data to integers
+        $totalDays = count($allDaysInRange);
+        $totalPatientDays = (int) $stats['PatientDays'];
+        $totalDischarges = (int) $stats['Discharges'];
+        $totalDeaths = (int) $stats['Deaths'];
+        $totalDeaths48 = (int) $stats['Deaths48'];
+        $totalPatientTreatment = (int) $stats['PatientTreatment'];
+    
+        // Step 8: Calculate hospital indicators
+        $totalBedDays = $bedQuantity * $totalDays;
         $BOR = $totalBedDays > 0 ? round(($totalPatientDays / $totalBedDays) * 100) : 0; // Bed Occupancy Rate
         $AVLOS = $totalDischarges > 0 ? round($totalPatientTreatment / $totalDischarges) : 0; // Average Length of Stay
         $TOI = $totalDischarges > 0 ? round(($totalBedDays - $totalPatientDays) / $totalDischarges) : 0; // Turnover Interval
-        $BTO = $totalBeds > 0 ? round($totalDischarges / $totalBeds) : 0; // Bed Turnover Rate
+        $BTO = $bedQuantity > 0 ? round($totalDischarges / $bedQuantity) : 0; // Bed Turnover Rate
         $GDR = $totalDischarges > 0 ? round(($totalDeaths / $totalDischarges) * 1000) : 0; // Gross Death Rate
         $NDR = $totalDischarges > 0 ? round(($totalDeaths48 / $totalDischarges) * 1000) : 0; // Net Death Rate
-        return [$BOR, $AVLOS, $TOI, $BTO, $GDR, $NDR];
+    
+        // Step 9: Return the calculated statistics
+        return [
+            'status' => 'success',
+            'total_days' => $totalDays,
+            'total_beds' => $bedQuantity,
+            'total_patient_days' => $totalPatientDays,
+            'total_discharges' => $totalDischarges,
+            'total_deaths' => $totalDeaths,
+            'total_deaths_48' => $totalDeaths48,
+            'total_patient_treatment' => $totalPatientTreatment,
+            'BOR' => $BOR,
+            'AVLOS' => $AVLOS,
+            'TOI' => $TOI,
+            'BTO' => $BTO,
+            'GDR' => $GDR,
+            'NDR' => $NDR
+        ];
     }
-    
 
-    
     
     
     
@@ -519,7 +823,6 @@ class Guest_model {
     
     
 }
-
 
 
 
