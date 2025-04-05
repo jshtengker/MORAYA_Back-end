@@ -816,14 +816,305 @@ class Guest_model {
         ];
     }
 
+     // fetch stats by indicators daily
+    public function fetch_stats_by_indicator($date, $indicator) {
+        // List of valid indicators
+        $validIndicators = ['BOR', 'AVLOS', 'TOI', 'BTO', 'GDR', 'NDR'];
     
+        // Validate indicator
+        if (!in_array($indicator, $validIndicators)) {
+            return json_encode(['status' => 'error', 'message' => 'Invalid indicator. Valid indicators are: BOR, AVLOS, TOI, BTO, GDR, NDR.']);
+        }
     
+        // Step 1: Get all available rooms from non-admin users
+        $roomQuery = "SELECT DISTINCT ruangan FROM users WHERE role != 'admin'";
+        $roomResult = $this->conn->query($roomQuery);
+    
+        if (!$roomResult) {
+            return json_encode(['status' => 'error', 'message' => 'Failed to fetch rooms: ' . $this->conn->error]);
+        }
+    
+        // Store all rooms with default values
+        $rooms = [];
+        while ($row = $roomResult->fetch_assoc()) {
+            $rooms[$row['ruangan']] = 'tidak ada data';
+        }
+    
+        // Step 2: Query necessary data for all rooms
+        $query = "
+            SELECT 
+                users.ruangan AS room,
+                COALESCE(SUM(bed.jumlah_bed), NULL) AS bedQuantity,
+                COALESCE(SUM(input_nurse.pasien_awal + input_nurse.pasien_masuk + input_nurse.pasien_pindahan), NULL) AS totalPatientDays,
+                COALESCE(SUM(input_nurse.pasien_hidup + input_nurse.pasien_rujuk + input_nurse.pasien_aps + input_nurse.pasien_lain_lain + input_nurse.pasien_meninggal_kurang_dari_48_jam + input_nurse.pasien_meninggal_lebih_dari_48_jam), NULL) AS totalDischarges,
+                COALESCE(SUM(input_nurse.pasien_meninggal_kurang_dari_48_jam), NULL) AS totalDeaths48,
+                COALESCE(SUM(input_nurse.pasien_meninggal_lebih_dari_48_jam), NULL) AS totalDeaths
+            FROM users
+            LEFT JOIN bed ON users.user_id = bed.user_id
+            LEFT JOIN input_nurse ON users.user_id = input_nurse.user_id AND input_nurse.tanggal = ?
+            WHERE users.role != 'admin'
+            GROUP BY users.ruangan
+        ";
+    
+        $stmt = $this->conn->prepare($query);
+        if (!$stmt) {
+            return json_encode(['status' => 'error', 'message' => 'Prepare failed: ' . $this->conn->error]);
+        }
+    
+        $stmt->bind_param('s', $date);
+        if (!$stmt->execute()) {
+            return json_encode(['status' => 'error', 'message' => 'Execute failed: ' . $stmt->error]);
+        }
+    
+        $result = $stmt->get_result();
+    
+        // Process the result and calculate the required indicator
+        while ($row = $result->fetch_assoc()) {
+            $bedQuantity = $row['bedQuantity'];
+            $totalPatientDays = $row['totalPatientDays'];
+            $totalDischarges = $row['totalDischarges'];
+            $totalDeaths = $row['totalDeaths'];
+            $totalDeaths48 = $row['totalDeaths48'];
+    
+            // If there's no data for this room, keep 'tidak ada data'
+            if (is_null($bedQuantity) || is_null($totalPatientDays) || is_null($totalDischarges) || is_null($totalDeaths) || is_null($totalDeaths48)) {
+                $rooms[$row['room']] = 'tidak ada data';
+                continue;
+            }
+    
+            // Assuming daily calculations use a 1-day period
+            $totalBedDays = $bedQuantity * 1;
+    
+            // Compute the required indicator
+            $indicatorValues = [
+                'BOR' => $totalBedDays > 0 ? round(($totalPatientDays / $totalBedDays) * 100) : 'tidak ada data',
+                'AVLOS' => $totalDischarges > 0 ? round($totalPatientDays / $totalDischarges) : 'tidak ada data',
+                'TOI' => $totalDischarges > 0 ? round(($totalBedDays - $totalPatientDays) / $totalDischarges) : 'tidak ada data',
+                'BTO' => $bedQuantity > 0 ? round($totalDischarges / $bedQuantity) : 'tidak ada data',
+                'GDR' => $totalDischarges > 0 ? round(($totalDeaths / $totalDischarges) * 1000) : 'tidak ada data',
+                'NDR' => $totalDischarges > 0 ? round(($totalDeaths48 / $totalDischarges) * 1000) : 'tidak ada data'
+            ];
+    
+            // Assign the calculated value for the requested indicator
+            $rooms[$row['room']] = $indicatorValues[$indicator];
+        }
+    
+        // Return JSON response
+        return json_encode([
+            'status' => 'success',
+            'date' => $date,
+            'indicator' => $indicator,
+            'data' => $rooms
+        ], JSON_PRETTY_PRINT);
+    }
+    
+    // fetch stats by indicator monthly
+    public function fetch_monthly_stats_by_indicator($month, $year, $indicator) {
+        // List of valid indicators
+        $validIndicators = ['BOR', 'AVLOS', 'TOI', 'BTO', 'GDR', 'NDR'];
+    
+        // Validate indicator
+        if (!in_array($indicator, $validIndicators)) {
+            return json_encode(['status' => 'error', 'message' => 'Invalid indicator. Valid indicators are: BOR, AVLOS, TOI, BTO, GDR, NDR.']);
+        }
+    
+        // Validate month and year
+        if (!is_numeric($month) || !is_numeric($year) || $month < 1 || $month > 12 || $year < 2000) {
+            return json_encode(['status' => 'error', 'message' => 'Invalid month or year.']);
+        }
+    
+        // Get the number of days in the given month
+        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+    
+        // Step 1: Get all available rooms from non-admin users
+        $roomQuery = "SELECT DISTINCT ruangan FROM users WHERE role != 'admin'";
+        $roomResult = $this->conn->query($roomQuery);
+    
+        if (!$roomResult) {
+            return json_encode(['status' => 'error', 'message' => 'Failed to fetch rooms: ' . $this->conn->error]);
+        }
+    
+        // Store all rooms with default values
+        $rooms = [];
+        $rawData = []; // Store raw data for debugging
+        while ($row = $roomResult->fetch_assoc()) {
+            $rooms[$row['ruangan']] = 'tidak ada data';
+            $rawData[$row['ruangan']] = []; // Initialize raw data for each room
+        }
+    
+        // Step 2: Query necessary data for all rooms within the given month
+        $query = "
+            SELECT 
+                users.ruangan AS room,
+                MAX(bed.jumlah_bed) AS bedQuantity,
+                COALESCE(SUM(input_nurse.pasien_awal + input_nurse.pasien_masuk + input_nurse.pasien_pindahan), NULL) AS totalPatientDays,
+                COALESCE(SUM(input_nurse.pasien_hidup + input_nurse.pasien_rujuk + input_nurse.pasien_aps + input_nurse.pasien_lain_lain + input_nurse.pasien_meninggal_kurang_dari_48_jam + input_nurse.pasien_meninggal_lebih_dari_48_jam), NULL) AS totalDischarges,
+                COALESCE(SUM(input_nurse.pasien_meninggal_kurang_dari_48_jam), NULL) AS totalDeaths48,
+                COALESCE(SUM(input_nurse.pasien_meninggal_lebih_dari_48_jam), NULL) AS totalDeaths,
+                COUNT(DISTINCT input_nurse.tanggal) AS recordedDays -- Count unique dates
+            FROM users
+            LEFT JOIN bed ON users.user_id = bed.user_id
+            LEFT JOIN input_nurse ON users.user_id = input_nurse.user_id 
+                AND MONTH(input_nurse.tanggal) = ? 
+                AND YEAR(input_nurse.tanggal) = ?
+            WHERE users.role != 'admin'
+            GROUP BY users.ruangan
+        ";
+    
+        $stmt = $this->conn->prepare($query);
+        if (!$stmt) {
+            return json_encode(['status' => 'error', 'message' => 'Prepare failed: ' . $this->conn->error]);
+        }
+    
+        $stmt->bind_param('ii', $month, $year);
+        if (!$stmt->execute()) {
+            return json_encode(['status' => 'error', 'message' => 'Execute failed: ' . $stmt->error]);
+        }
+    
+        $result = $stmt->get_result();
+    
+        // Process the result and calculate the required indicator
+        while ($row = $result->fetch_assoc()) {
+            $bedQuantity = $row['bedQuantity'];
+            $totalPatientDays = $row['totalPatientDays'];
+            $totalDischarges = $row['totalDischarges'];
+            $totalDeaths = $row['totalDeaths'];
+            $totalDeaths48 = $row['totalDeaths48'];
+            $recordedDays = $row['recordedDays']; // Number of recorded days in the month
+    
+            // Store raw data for debugging
+            $rawData[$row['room']] = [
+                'bedQuantity' => $bedQuantity,
+                'totalPatientDays' => $totalPatientDays,
+                'totalDischarges' => $totalDischarges,
+                'totalDeaths' => $totalDeaths,
+                'totalDeaths48' => $totalDeaths48,
+                'recordedDays' => $recordedDays,
+                'daysInMonth' => $daysInMonth
+            ];
+    
+            // Check if any required data is missing or if not all days have records
+            if ($recordedDays < $daysInMonth || is_null($bedQuantity) || is_null($totalPatientDays) || is_null($totalDischarges) || is_null($totalDeaths) || is_null($totalDeaths48) ||
+                $bedQuantity == 0 || $totalPatientDays == 0 || $totalDischarges == 0) {
+                $rooms[$row['room']] = 'data belum lengkap';
+                continue;
+            }
+    
+            // Monthly total bed days
+            $totalBedDays = $bedQuantity * $daysInMonth;
+    
+            // Compute the required indicator
+            $indicatorValues = [
+                'BOR' => $totalBedDays > 0 ? round(($totalPatientDays / $totalBedDays) * 100) : 'data belum lengkap',
+                'AVLOS' => $totalDischarges > 0 ? round($totalPatientDays / $totalDischarges) : 'data belum lengkap',
+                'TOI' => $totalDischarges > 0 ? round(($totalBedDays - $totalPatientDays) / $totalDischarges) : 'data belum lengkap',
+                'BTO' => $bedQuantity > 0 ? round($totalDischarges / $bedQuantity) : 'data belum lengkap',
+                'GDR' => $totalDischarges > 0 ? round(($totalDeaths / $totalDischarges) * 1000) : 'data belum lengkap',
+                'NDR' => $totalDischarges > 0 ? round(($totalDeaths48 / $totalDischarges) * 1000) : 'data belum lengkap'
+            ];
+    
+            // Assign the calculated value for the requested indicator
+            $rooms[$row['room']] = $indicatorValues[$indicator];
+        }
+    
+        // Return JSON response
+        return json_encode([
+            'status' => 'success',
+            'month' => $month,
+            'year' => $year,
+            'indicator' => $indicator,
+            'data' => $rooms,
+            'raw_data' => $rawData
+        ], JSON_PRETTY_PRINT);
+    }
+
+    // fetch stats by indicator based on range date
+    public function fetchStatsByRange($startDate, $endDate, $indicator) {
+        $validIndicators = ['BOR', 'AVLOS', 'TOI', 'BTO', 'GDR', 'NDR'];
+        if (!in_array(strtoupper($indicator), $validIndicators)) {
+            return ['error' => 'Invalid indicator.'];
+        }
+    
+        $totalDays = (new DateTime($startDate))->diff(new DateTime($endDate))->days + 1;
+    
+        $userQuery = "SELECT user_id, ruangan FROM users WHERE role != 'admin'";
+        $userResult = $this->conn->query($userQuery);
+        if (!$userResult) return ['error' => 'Failed to fetch users.'];
+    
+        $stats = [];
+    
+        while ($user = $userResult->fetch_assoc()) {
+            $userId = $user['user_id'];
+            $ruangan = $user['ruangan'];
+    
+            // Get bed quantity
+            $bedQuery = "SELECT MAX(jumlah_bed) as bed_quantity FROM bed WHERE user_id = ?";
+            $stmtBed = $this->conn->prepare($bedQuery);
+            $stmtBed->bind_param('i', $userId);
+            $stmtBed->execute();
+            $bedResult = $stmtBed->get_result()->fetch_assoc();
+            $bedQuantity = $bedResult['bed_quantity'] ?? 0;
+    
+            if (!$bedQuantity) {
+                $stats[$ruangan] = 'data belum lengkap';
+                continue;
+            }
+    
+            // Check if records exist for every day in the range
+            $dateCountQuery = "
+                SELECT COUNT(DISTINCT tanggal) as date_count 
+                FROM input_nurse 
+                WHERE user_id = ? AND tanggal BETWEEN ? AND ?
+            ";
+            $stmtCount = $this->conn->prepare($dateCountQuery);
+            $stmtCount->bind_param('iss', $userId, $startDate, $endDate);
+            $stmtCount->execute();
+            $countResult = $stmtCount->get_result()->fetch_assoc();
+            $dateCount = (int) $countResult['date_count'];
+    
+            if ($dateCount < $totalDays) {
+                $stats[$ruangan] = 'data belum lengkap';
+                continue;
+            }
+    
+            // Now fetch the aggregated values
+            $nurseQuery = "
+                SELECT 
+                    SUM(pasien_awal + pasien_masuk + pasien_pindahan) AS PatientDays,
+                    SUM(pasien_dipindahkan + pasien_hidup + pasien_rujuk + pasien_aps + pasien_lain_lain + pasien_meninggal_kurang_dari_48_jam + pasien_meninggal_lebih_dari_48_jam) AS Discharges,
+                    SUM(pasien_meninggal_kurang_dari_48_jam + pasien_meninggal_lebih_dari_48_jam) AS Deaths,
+                    SUM(pasien_meninggal_lebih_dari_48_jam) AS Deaths48,
+                    SUM(pasien_lama_dirawat) AS PatientTreatment
+                FROM input_nurse
+                WHERE user_id = ? AND tanggal BETWEEN ? AND ?
+            ";
+            $stmtNurse = $this->conn->prepare($nurseQuery);
+            $stmtNurse->bind_param('iss', $userId, $startDate, $endDate);
+            $stmtNurse->execute();
+            $data = $stmtNurse->get_result()->fetch_assoc();
+    
+            $totalBedDays = $bedQuantity * $totalDays;
+    
+            // Calculate indicators
+            $BOR   = $totalBedDays > 0 ? round(($data['PatientDays'] / $totalBedDays) * 100) : 0;
+            $AVLOS = $data['Discharges'] > 0 ? round($data['PatientTreatment'] / $data['Discharges']) : 0;
+            $TOI   = $data['Discharges'] > 0 ? round(($totalBedDays - $data['PatientDays']) / $data['Discharges']) : 0;
+            $BTO   = $bedQuantity > 0 ? round($data['Discharges'] / $bedQuantity) : 0;
+            $GDR   = $data['Discharges'] > 0 ? round(($data['Deaths'] / $data['Discharges']) * 1000) : 0;
+            $NDR   = $data['Discharges'] > 0 ? round(($data['Deaths48'] / $data['Discharges']) * 1000) : 0;
+    
+            $indicators = compact('BOR', 'AVLOS', 'TOI', 'BTO', 'GDR', 'NDR');
+    
+            $stats[$ruangan] = $indicators[strtoupper($indicator)];
+        }
+    
+        return $stats;
+    }
+
     
     
     
     
 }
-
-
 
 ?>

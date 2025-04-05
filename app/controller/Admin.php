@@ -57,7 +57,6 @@ class Admin {
         }
     }
 
-
     // updating data
     public function update_admin() {
         try {
@@ -115,6 +114,47 @@ class Admin {
             echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
         }
     }
+
+    // updating bed count
+    public function update_bed_count() {
+        try {
+            // Retrieve parameters from POST request
+            $ruangan = $_POST['ruangan'] ?? null;
+            $jumlah_bed = $_POST['jumlah_bed'] ?? null;
+    
+            // Validate parameters
+            if (empty($ruangan) || $jumlah_bed === null) {
+                echo json_encode(['status' => 'error', 'message' => 'Ruangan and jumlah_bed parameters are required.']);
+                http_response_code(400); // Bad Request
+                return;
+            }
+    
+            if (!is_numeric($jumlah_bed) || $jumlah_bed < 0) {
+                echo json_encode(['status' => 'error', 'message' => 'Invalid jumlah_bed. It must be a non-negative number.']);
+                http_response_code(400); // Bad Request
+                return;
+            }
+    
+            // Call the model function
+            $result = $this->Admin_model->update_bed($ruangan, intval($jumlah_bed));
+    
+            // Decode the result to check the status
+            $decodedResult = json_decode($result, true);
+    
+            if (isset($decodedResult['status']) && $decodedResult['status'] === 'success') {
+                echo $result;
+                http_response_code(200); // OK
+            } else {
+                echo $result; // Return the error message from the model
+                http_response_code(404); // Not Found
+            }
+        } catch (Exception $e) {
+            // Catch and return any exceptions
+            echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
+            http_response_code(500); // Internal Server Error
+        }
+    }
+   
     
     
     

@@ -238,7 +238,135 @@ class Guest {
         return true;
     }
 
+    // fetch data by indicators daily
+    public function get_stats_by_indicator() {
+        try {
+            // Check if date and indicator are provided in the request
+            $date = $_POST['tanggal'] ?? null;
+            $indicator = $_POST['indicator'] ?? null;
+
+            if (empty($date) || empty($indicator)) {
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => 'Date and indicator parameters are required'
+                ]);
+                http_response_code(400); // Bad Request
+                return;
+            }
+
+            // Call the model function to fetch data
+            $result = $this->Guest_model->fetch_stats_by_indicator($date, $indicator);
+
+            // Check if data was retrieved successfully
+            if ($result) {
+                echo $result;
+                http_response_code(200); // OK
+            } else {
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => 'No data found for the given date and indicator'
+                ]);
+                http_response_code(404); // Not Found
+            }
+
+        } catch (Exception $e) {
+            // Handle any exceptions
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'An error occurred: ' . $e->getMessage()
+            ]);
+            http_response_code(500); // Internal Server Error
+        }
+    }
+
+    // fetch data by indicators monthly
+    public function get_monthly_stats_by_indicator() {
+        try {
+            // Retrieve parameters from POST request
+            $month = $_POST['month'] ?? null;
+            $year = $_POST['year'] ?? null;
+            $indicator = $_POST['indicator'] ?? null;
     
+            // Validate parameters
+            if (empty($month) || empty($year) || empty($indicator)) {
+                echo json_encode(['status' => 'error', 'message' => 'Month, year, and indicator parameters are required.']);
+                http_response_code(400); // Bad Request
+                return;
+            }
+    
+            // Ensure valid numeric month and year
+            if (!is_numeric($month) || !is_numeric($year) || $month < 1 || $month > 12 || $year < 2000) {
+                echo json_encode(['status' => 'error', 'message' => 'Invalid month or year format.']);
+                http_response_code(400);
+                return;
+            }
+    
+            // Call the model function
+            $result = $this->Guest_model->fetch_monthly_stats_by_indicator($month, $year, $indicator);
+    
+            // Decode the result to check the status
+            $decodedResult = json_decode($result, true);
+    
+            if (isset($decodedResult['status']) && $decodedResult['status'] === 'success') {
+                echo $result;
+                http_response_code(200); // OK
+            } else {
+                echo $result; // Return the error message from the model
+                http_response_code(404); // Not Found
+            }
+        } catch (Exception $e) {
+            // Catch and return any exceptions
+            echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
+            http_response_code(500); // Internal Server Error
+        }
+    }
+
+    // fetch data by indicators based on range date
+    public function get_stats_indicator_by_range() {
+        try {
+            $startDate = $_POST['start_date'] ?? null;
+            $endDate = $_POST['end_date'] ?? null;
+            $indicator = $_POST['indicator'] ?? null;
+    
+            if (empty($startDate) || empty($endDate) || empty($indicator)) {
+                http_response_code(400);
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => 'Start date, end date, and indicator are required.'
+                ]);
+                return;
+            }
+    
+            $result = $this->Guest_model->fetchStatsByRange($startDate, $endDate, $indicator);
+    
+            if (isset($result['error'])) {
+                http_response_code(400);
+                echo json_encode([
+                    'status' => 'error',
+                    'message' => $result['error']
+                ]);
+                return;
+            }
+    
+            echo json_encode([
+                'status' => 'success',
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'indicator' => strtoupper($indicator),
+                'data' => $result
+            ], JSON_PRETTY_PRINT);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Exception occurred: ' . $e->getMessage()
+            ]);
+        }
+    }
+    
+    
+
+
 }
 
 ?>

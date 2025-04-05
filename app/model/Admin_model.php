@@ -13,6 +13,8 @@ class Admin_model {
     public function __construct($db) {
         $this->conn = $db;
     }
+
+    // get bed quantity
     public function getBedQuantity($ruangan) {
         $query = "SELECT jumlah_bed FROM bed WHERE ruangan = ?";
         $stmt = $this->conn->prepare($query);
@@ -127,6 +129,47 @@ class Admin_model {
         } catch (Exception $e) {
             echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
             return false;
+        }
+    }
+
+     // update bed count
+     public function update_bed($ruangan, $jumlah_bed) {
+        // Validate jumlah_bed
+        if (!is_numeric($jumlah_bed) || $jumlah_bed < 0) {
+            return json_encode(['status' => 'error', 'message' => 'Invalid jumlah_bed. It must be a non-negative number.']);
+        }
+    
+        // Validate ruangan input
+        if (empty($ruangan)) {
+            return json_encode(['status' => 'error', 'message' => 'Ruangan cannot be empty.']);
+        }
+    
+        // Prepare the update query
+        $query = "
+            UPDATE bed
+            SET jumlah_bed = ?
+            WHERE ruangan = ?
+        ";
+    
+        $stmt = $this->conn->prepare($query);
+    
+        if (!$stmt) {
+            return json_encode(['status' => 'error', 'message' => 'Failed to prepare statement: ' . $this->conn->error]);
+        }
+    
+        // Bind parameters
+        $stmt->bind_param('is', $jumlah_bed, $ruangan);
+    
+        // Execute the query
+        if (!$stmt->execute()) {
+            return json_encode(['status' => 'error', 'message' => 'Query execution failed: ' . $stmt->error]);
+        }
+    
+        // Check if any row was affected
+        if ($stmt->affected_rows > 0) {
+            return json_encode(['status' => 'success', 'message' => 'Jumlah_bed updated successfully.']);
+        } else {
+            return json_encode(['status' => 'error', 'message' => 'No record updated. Check if the ruangan exists or make sure the amount of bed is not the same as the current value in database.']);
         }
     }
     

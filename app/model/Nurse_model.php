@@ -323,6 +323,13 @@ class Nurse_model {
             'pasien_masih_dirawat' => (int) $data['pasien_masih_dirawat']
         ];
     }
+
+   
+    
+    
+    
+    
+    
     
     
     
