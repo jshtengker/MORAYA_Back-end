@@ -12,7 +12,6 @@ header('Content-Type: application/json');
 class Nurse {
     private $db;
     private $Nurse_model;
-
     public function __construct() {
         try {
             // Create database connection
@@ -268,6 +267,40 @@ class Nurse {
         } else {
             // Return the data if found
             echo json_encode($response);
+        }
+    }
+
+    public function change_password() {
+        // Get input from POST or any request data
+        $username = isset($_POST['username']) ? $_POST['username'] : null;
+        $role = isset($_POST['role']) ? $_POST['role'] : null;
+        $ruangan = isset($_POST['ruangan']) ? $_POST['ruangan'] : null;
+        $newPassword = isset($_POST['new_password']) ? $_POST['new_password'] : null;
+    
+
+        // Validate the inputs
+        if (empty($username) || empty($role) || empty($ruangan) || empty($newPassword)) {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Username, role, ruangan, and password are required.'
+            ]);
+            return;
+        }
+
+        // Call the model function to update the password
+        $result = $this->inputNurse->updatePasswordByUsernameRoleAndRuangan($username, $role, $ruangan, $newPassword);
+
+        // Handle the response from the model
+        if ($result) {
+            echo json_encode([
+                'status' => 'success',
+                'message' => 'Password updated successfully.'
+            ]);
+        } else {
+            echo json_encode([
+                'status' => 'error',
+                'message' => 'Failed to update password. Check the inputs or try again later.'
+            ]);
         }
     }
 

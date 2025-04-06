@@ -154,6 +154,83 @@ class Admin {
             http_response_code(500); // Internal Server Error
         }
     }
+
+    // get input data
+    public function get_input_by_admin() {
+        try {
+            // Get input parameters from GET or POST
+            $ruangan = isset($_REQUEST['ruangan']) ? trim($_REQUEST['ruangan']) : null;
+            $tanggal = isset($_REQUEST['tanggal']) ? trim($_REQUEST['tanggal']) : date('Y-m-d');
+    
+            // Validate
+            if (empty($ruangan)) {
+                http_response_code(400);
+                echo json_encode(['status' => 'error', 'message' => 'Parameter ruangan harus disediakan']);
+                return;
+            }
+    
+            // Debug log
+            error_log("Fetching input_nurse data for Ruangan: $ruangan, Tanggal: $tanggal");
+    
+            // Call model to fetch the data
+            $result = $this->Admin_model->getDataByDateAndRuangan($tanggal, $ruangan);
+    
+            // Send response
+            if ($result['status'] === 'success') {
+                echo json_encode([
+                    'status' => 'success',
+                    'message' => 'Data berhasil diambil',
+                    'data' => $result['data']
+                ]);
+            } else {
+                http_response_code(404);
+                echo json_encode(['status' => 'error', 'message' => $result['message']]);
+            }
+    
+        } catch (Exception $e) {
+            error_log("Exception in get_input_by_admin: " . $e->getMessage());
+            http_response_code(500);
+            echo json_encode(['status' => 'error', 'message' => 'Terjadi kesalahan: ' . $e->getMessage()]);
+        }
+    }
+
+    // export table as pdf
+    public function export_table() {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid request method']);
+            return;
+        }
+    
+        // Retrieve parameters from request (POST or GET fallback)
+        $ruangan = $_POST['ruangan'] ?? $_GET['ruangan'] ?? null;
+        $month = $_POST['month'] ?? $_GET['month'] ?? null;
+    
+        // === Validate ruangan ===
+        if (empty($ruangan) || !is_string($ruangan) || strlen($ruangan) < 3) {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid or missing "ruangan"']);
+            return;
+        }
+    
+        // === Validate month ===
+        if (empty($month) || !preg_match('/^(0[1-9]|1[0-2])$/', $month)) {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid or missing "month". Use MM format (e.g., 01 for January)']);
+            return;
+        }
+    
+        // === Call the model to generate and export PDF ===
+        try {
+            // Assuming $this->inputNurse is your model instance
+            $this->Admin_model->exportTableToPDF($ruangan, (int)$month);
+        } catch (Exception $e) {
+            echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
+            return;
+        }
+    
+        // Important: stop further output
+        exit;
+    }
+    
+    
    
     
     

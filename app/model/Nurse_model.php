@@ -84,7 +84,7 @@ class Nurse_model {
         }
     }
 
-    // get al data by date and user_id
+    // get all data by date and user_id
     public function getDataByDateAndUser($date, $user_id) {
         // Check if user exists and get their ruangan
         $queryUser = "SELECT ruangan FROM users WHERE user_id = ? LIMIT 1";
