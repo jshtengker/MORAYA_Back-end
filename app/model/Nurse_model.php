@@ -137,7 +137,6 @@ class Nurse_model {
     // inserting data
     public function insert($data) {
         try {
-            // Define the table name directly
             $table_name = "input_nurse";
     
             $query = "INSERT INTO $table_name (
@@ -167,8 +166,8 @@ class Nurse_model {
             }
     
             $stmt->bind_param(
-                "iiiiiiiiiiiiiiiis", // Adjusted parameter types (integer for numbers, string for tanggal)
-                $data['user_id'], // Assuming user_id is provided
+                "iiiiiiiiiiiiiiiis",
+                $data['user_id'],
                 $data['pasien_awal'],
                 $data['pasien_masuk'],
                 $data['pasien_pindahan'],
@@ -188,21 +187,28 @@ class Nurse_model {
             );
     
             if ($stmt->execute()) {
-                $response = [
-                    'status' => 'success',
-                    'message' => 'Data inserted successfully'
-                ];
-                echo json_encode($response);
+                echo json_encode(['status' => 'success', 'message' => 'Data inserted successfully']);
                 return true;
             } else {
-                echo json_encode(['status' => 'error', 'message' => 'Execute failed: ' . $stmt->error]);
-                return false;
+                // Handle duplicate key error
+                if ($stmt->errno == 1062) {
+                    echo json_encode([
+                        'status' => 'warning',
+                        'message' => 'Data already submitted for this date.'
+                    ]);
+                    return false;
+                } else {
+                    echo json_encode(['status' => 'error', 'message' => 'Execute failed: ' . $stmt->error]);
+                    return false;
+                }
             }
+    
         } catch (Exception $e) {
             echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
             return false;
         }
     }
+    
 
     // updating data
     public function update($tanggal, $data) {

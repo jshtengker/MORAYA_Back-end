@@ -225,7 +225,7 @@ class Admin_model {
     }
 
     // download input data as pdf
-    public function exportTableToPDF($ruangan, $month) {
+    public function exportTableToPDF($ruangan, $month, $year) {
         ob_start();
 
         try {
@@ -248,18 +248,18 @@ class Admin_model {
             }
 
             $placeholders = implode(',', array_fill(0, count($userIds), '?'));
-            $types = str_repeat('i', count($userIds)) . 'i';
+            $types = str_repeat('i', count($userIds)) . 'ii';
 
-            $query = "SELECT * FROM input_nurse WHERE user_id IN ($placeholders) AND MONTH(tanggal) = ? ORDER BY tanggal ASC";
+            $query = "SELECT * FROM input_nurse WHERE user_id IN ($placeholders) AND MONTH(tanggal) = ? AND YEAR(tanggal) = ? ORDER BY tanggal ASC";
             $stmt = $this->conn->prepare($query);
-            $params = array_merge($userIds, [$month]);
+            $params = array_merge($userIds, [$month, $year]);
             $stmt->bind_param($types, ...$params);
             $stmt->execute();
             $result = $stmt->get_result();
 
             if ($result->num_rows === 0) {
                 ob_end_clean();
-                echo json_encode(['status' => 'error', 'message' => 'No data found for the specified month.']);
+                echo json_encode(['status' => 'error', 'message' => 'No data found for the specified month & year.']);
                 return;
             }
 
@@ -272,7 +272,7 @@ class Admin_model {
             $pdf->SetFont('Arial', 'B', 12);
 
             $monthName = DateTime::createFromFormat('!m', $month)->format('F');
-            $pdf->Cell(0, 10, "Rekap input bulan $monthName untuk ruangan $ruangan", 0, 1, 'C');
+            $pdf->Cell(0, 10, "Rekap input bulan $monthName $year untuk ruangan $ruangan", 0, 1, 'C');
             $pdf->Ln(10);
 
             $headers = [

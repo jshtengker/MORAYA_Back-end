@@ -28,7 +28,7 @@ class Guest {
     }
 
      // Get indicator values based on ruangan and tanggal daily
-     public function get_daily_indicators_ruangan() {
+    public function get_daily_indicators_ruangan() {
         try {
             // Get parameters from the request
             $ruangan = $_POST['ruangan'] ?? null;
@@ -75,69 +75,85 @@ class Guest {
         try {
             // Get parameters from POST
             $ruangan = isset($_POST['ruangan']) ? trim($_POST['ruangan']) : null;
-            $month = isset($_POST['month']) ? trim($_POST['month']) : null; // Month as '08' for August, etc.
-
+            $month = isset($_POST['month']) ? trim($_POST['month']) : null; // e.g., '08'
+            $year = isset($_POST['year']) ? trim($_POST['year']) : null; // default to current year if not provided
+    
             if (empty($ruangan)) {
                 echo json_encode(['status' => 'error', 'message' => 'Ruangan is required']);
                 return;
             }
-
+    
             if (empty($month)) {
                 echo json_encode(['status' => 'error', 'message' => 'Month is required']);
                 return;
             }
+    
+            // if (!is_numeric($year) || strlen($year) !== 4) {
+            //     echo json_encode(['status' => 'error', 'message' => 'Year must be a 4-digit number']);
+            //     return;
+            // }
 
-            // Fetch indicators from model
-            $result = $this->Guest_model->monthlyIndicatorsRooms($ruangan, $month);
-
+            if (empty($year)) {
+                echo json_encode(['status' => 'error', 'message' => 'Year is required']);
+                return;
+            }
+    
+            // Fetch indicators from model (now passing year as well)
+            $result = $this->Guest_model->monthlyIndicatorsRooms($ruangan, $month, $year);
+    
             if ($result['status'] === 'error') {
-                // Return error if no data found
                 echo json_encode($result);
                 http_response_code(404);
                 return;
             }
-
-            // Return success with the calculated indicators
+    
             echo json_encode($result);
-
+    
         } catch (Exception $e) {
             echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
         }
     }
+    
 
      // Fetch range indicators by given ruangan, start, end date
-    public function get_range_indicators_ruangan() {
+     public function get_range_indicators_ruangan() {
         try {
             // Get parameters from POST request
             $ruangan = isset($_POST['ruangan']) ? trim($_POST['ruangan']) : null;
             $start_date = isset($_POST['start_date']) ? trim($_POST['start_date']) : null; // Format: 'YYYY-MM-DD'
             $end_date = isset($_POST['end_date']) ? trim($_POST['end_date']) : null; // Format: 'YYYY-MM-DD'
-
+    
             // Validate required parameters
             if (empty($ruangan)) {
                 echo json_encode(['status' => 'error', 'message' => 'Ruangan is required']);
                 return;
             }
-
+    
             if (empty($start_date)) {
                 echo json_encode(['status' => 'error', 'message' => 'Start date is required']);
                 return;
             }
-
+    
             if (empty($end_date)) {
                 echo json_encode(['status' => 'error', 'message' => 'End date is required']);
                 return;
             }
-
+    
             // Validate date format
             if (!strtotime($start_date) || !strtotime($end_date)) {
                 echo json_encode(['status' => 'error', 'message' => 'Invalid date format']);
                 return;
             }
-
+    
+            // Check if end_date is before start_date
+            if (strtotime($end_date) < strtotime($start_date)) {
+                echo json_encode(['status' => 'error', 'message' => 'Start date tidak boleh setelah end date']);
+                return;
+            }
+    
             // Fetch indicators from the model using the provided date range
             $result = $this->Guest_model->dateRangeIndicatorsRooms($ruangan, $start_date, $end_date);
-
+    
             // Check if the result contains any errors
             if ($result['status'] === 'error') {
                 // Return error response if no data found or any other issue
@@ -145,14 +161,15 @@ class Guest {
                 http_response_code(404);
                 return;
             }
-
+    
             // Return the calculated indicators
             echo json_encode($result);
-
+    
         } catch (Exception $e) {
             echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
         }
     }
+    
 
     // Fetch stats rs daily
     public function get_stats_data_rs_daily() {
@@ -182,36 +199,38 @@ class Guest {
     // Fetch stats rs monthly
     public function get_stats_data_rs_monthly() {
         try {
-            // Retrieve the month parameter from the POST data
+            // Retrieve the month and year parameters from the POST data
             $month = $_POST['month'] ?? null;
+            $year = $_POST['year'] ?? null;
     
-            // If the month is not provided, return an error
+            // Validate inputs
             if (empty($month)) {
                 echo json_encode(['status' => 'error', 'message' => 'Month parameter is required']);
                 return;
             }
     
-            // Get the current year
-            $year = date('Y'); 
+            if (empty($year)) {
+                echo json_encode(['status' => 'error', 'message' => 'Year parameter is required']);
+                return;
+            }
     
-            // Call the model method to calculate the statistics for the provided month and current year
-            $result = $this->Guest_model->calculateStatsMonthly($month);
+            // Call the model method with month and year
+            $result = $this->Guest_model->calculateStatsMonthly($month, $year);
     
-            // If the result is not empty, return the data as a JSON response
+            // Check and return result
             if ($result) {
-                echo json_encode($result);
+                // calculateStatsMonthly already echoes JSON, so no need to echo again
                 http_response_code(200);  // OK
             } else {
                 echo json_encode(['status' => 'error', 'message' => 'No data found. Check if all data for that month is already inserted!']);
                 http_response_code(404);  // Not Found
             }
         } catch (Exception $e) {
-            // If an error occurs, catch the exception and return an error message
             echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
             http_response_code(500);  // Internal Server Error
         }
     }
-
+    
     // Fetch stats rs by range date
     public function get_stats_data_rs_range() {
         // Retrieve input from the request (e.g., from $_POST)

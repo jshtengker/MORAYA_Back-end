@@ -203,7 +203,8 @@ class Admin {
     
         // Retrieve parameters from request (POST or GET fallback)
         $ruangan = $_POST['ruangan'] ?? $_GET['ruangan'] ?? null;
-        $month = $_POST['month'] ?? $_GET['month'] ?? null;
+        $month   = $_POST['month'] ?? $_GET['month'] ?? null;
+        $year    = $_POST['year'] ?? $_GET['year'] ?? null;
     
         // === Validate ruangan ===
         if (empty($ruangan) || !is_string($ruangan) || strlen($ruangan) < 3) {
@@ -217,10 +218,15 @@ class Admin {
             return;
         }
     
+        // === Validate year ===
+        if (empty($year) || !preg_match('/^\d{4}$/', $year)) {
+            echo json_encode(['status' => 'error', 'message' => 'Invalid or missing "year". Use YYYY format (e.g., 2024)']);
+            return;
+        }
+    
         // === Call the model to generate and export PDF ===
         try {
-            // Assuming $this->inputNurse is your model instance
-            $this->Admin_model->exportTableToPDF($ruangan, (int)$month);
+            $this->Admin_model->exportTableToPDF($ruangan, (int)$month, (int)$year);
         } catch (Exception $e) {
             echo json_encode(['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()]);
             return;
@@ -229,6 +235,7 @@ class Admin {
         // Important: stop further output
         exit;
     }
+    
     
     
    

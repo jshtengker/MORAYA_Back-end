@@ -113,7 +113,7 @@ class Guest_model {
     }
 
     // calculate indicators ruangan monthly
-    public function monthlyIndicatorsRooms($ruangan, $month) {
+    public function monthlyIndicatorsRooms($ruangan, $month, $year) {
         try {
             // Step 1: Find the user_id for the given ruangan
             $query = "SELECT user_id FROM users WHERE ruangan = ? LIMIT 1";
@@ -130,7 +130,18 @@ class Guest_model {
             $row = $result->fetch_assoc();
             $user_id = $row['user_id'];
     
-            // Step 2: Fetch and aggregate data from input_nurse for the given user_id and month
+            // Step 2: Get the number of days in the given month/year
+            $days_in_month = cal_days_in_month(CAL_GREGORIAN, (int)$month, $year);
+    
+            // Step 3: Initialize list of all expected dates
+            $all_dates = [];
+            for ($day = 1; $day <= $days_in_month; $day++) {
+                $formatted_day = str_pad($day, 2, '0', STR_PAD_LEFT);
+                $formatted_month = str_pad($month, 2, '0', STR_PAD_LEFT);
+                $all_dates[$day] = "$year-$formatted_month-$formatted_day";
+            }
+    
+            // Step 4: Fetch data from input_nurse
             $query = "SELECT 
                         DAY(tanggal) AS day,
                         SUM(pasien_awal) AS pasien_awal, 
@@ -145,46 +156,46 @@ class Guest_model {
                         SUM(pasien_meninggal_kurang_dari_48_jam) AS pasien_meninggal_kurang_dari_48_jam, 
                         SUM(pasien_meninggal_lebih_dari_48_jam) AS pasien_meninggal_lebih_dari_48_jam
                       FROM input_nurse 
-                      WHERE MONTH(tanggal) = ? AND YEAR(tanggal) = YEAR(CURDATE()) AND user_id = ?
+                      WHERE MONTH(tanggal) = ? AND YEAR(tanggal) = ? AND user_id = ?
                       GROUP BY DAY(tanggal)";
     
             $stmt = $this->conn->prepare($query);
-            $stmt->bind_param("si", $month, $user_id);
+            $stmt->bind_param("iii", $month, $year, $user_id);
             $stmt->execute();
             $result = $stmt->get_result();
             $stmt->close();
     
-            if ($result->num_rows === 0) {
-                return ['status' => 'error', 'message' => 'No any data found!'];
-            }
-    
-            // Step 3: Initialize data arrays and collect the results
             $monthly_data = [];
             while ($row = $result->fetch_assoc()) {
-                $monthly_data[$row['day']] = $row;
+                $monthly_data[(int)$row['day']] = $row;
             }
     
-            // Step 4: Get the number of days for the given month
-            $year = date('Y');
-            $days_in_month = cal_days_in_month(CAL_GREGORIAN, (int)$month, $year);
-    
-            // Step 5: Check for missing days (i.e., any day where data is missing)
-            $missing_days = [];
-            for ($day = 1; $day <= $days_in_month; $day++) {
+            // Step 5: Identify missing dates
+            $missing_dates = [];
+            foreach ($all_dates as $day => $date) {
                 if (!isset($monthly_data[$day])) {
-                    $missing_days[] = $day;
+                    $missing_dates[] = $date;
                 }
             }
     
-            // Step 6: If there are missing days, return an error with the missing days
-            if (!empty($missing_days)) {
+            // If all dates are missing, return immediately
+            if (count($monthly_data) === 0) {
                 return [
                     'status' => 'error',
-                    'message' => 'Data is missing for the following days: ' . implode(', ', $missing_days)
+                    'message' => 'Tidak ada satupun data tersedia di bulan ini.',
+                    'missing_dates' => array_values($all_dates)
                 ];
             }
     
-            // Step 7: Get bed quantity (jumlah_bed) for the ruangan
+            if (!empty($missing_dates)) {
+                return [
+                    'status' => 'error',
+                    'message' => 'Data tidak tersedia untuk tanggal di bawah ini :',
+                    'missing_dates' => $missing_dates
+                ];
+            }
+    
+            // Step 6: Get bed quantity (jumlah_bed) for the ruangan
             $query = "SELECT jumlah_bed FROM bed WHERE ruangan = ?";
             $stmt = $this->conn->prepare($query);
             $stmt->bind_param("s", $ruangan);
@@ -195,46 +206,38 @@ class Guest_model {
             $bedData = $result->fetch_assoc();
             $bed_quantity = $bedData['jumlah_bed'] ?? 0;
     
-            // Step 8: Calculate the indicators based on the aggregated data
-            $pasien_awal_total = 0;
-            $pasien_masuk_total = 0;
-            $pasien_pindahan_total = 0;
-            $pasien_dipindahkan_total = 0;
-            $pasien_hidup_total = 0;
-            $pasien_rujuk_total = 0;
-            $pasien_aps_total = 0;
-            $pasien_lain_lain_total = 0;
-            $pasien_lama_dirawat_total = 0;
-            $pasien_meninggal_kurang_dari_48_jam_total = 0;
-            $pasien_meninggal_lebih_dari_48_jam_total = 0;
+            // Step 7: Calculate totals
+            $totals = [
+                'pasien_awal' => 0,
+                'pasien_masuk' => 0,
+                'pasien_pindahan' => 0,
+                'pasien_hidup' => 0,
+                'pasien_rujuk' => 0,
+                'pasien_aps' => 0,
+                'pasien_dipindahkan' => 0,
+                'pasien_lain_lain' => 0,
+                'pasien_lama_dirawat' => 0,
+                'pasien_meninggal_kurang_dari_48_jam' => 0,
+                'pasien_meninggal_lebih_dari_48_jam' => 0,
+            ];
     
-            // Aggregate the totals for the month
             foreach ($monthly_data as $day_data) {
-                $pasien_awal_total += $day_data['pasien_awal'];
-                $pasien_masuk_total += $day_data['pasien_masuk'];
-                $pasien_pindahan_total += $day_data['pasien_pindahan'];
-                $pasien_hidup_total += $day_data['pasien_hidup'];
-                $pasien_rujuk_total += $day_data['pasien_rujuk'];
-                $pasien_lain_lain_total += $day_data['pasien_lain_lain'];
-                $pasien_aps_total += $day_data['pasien_aps'];
-                $pasien_dipindahkan_total += $day_data['pasien_dipindahkan'];
-                $pasien_lama_dirawat_total += $day_data['pasien_lama_dirawat'];
-                $pasien_meninggal_kurang_dari_48_jam_total += $day_data['pasien_meninggal_kurang_dari_48_jam'];
-                $pasien_meninggal_lebih_dari_48_jam_total += $day_data['pasien_meninggal_lebih_dari_48_jam'];
+                foreach ($totals as $key => &$total) {
+                    $total += $day_data[$key];
+                }
             }
     
-            // Calculate the total number of rows (patients)
-            $pasien_keluar_hidup_mati = $pasien_dipindahkan_total + $pasien_hidup_total + $pasien_lain_lain_total + $pasien_rujuk_total + $pasien_aps_total + $pasien_meninggal_kurang_dari_48_jam_total + $pasien_meninggal_lebih_dari_48_jam_total;
+            $pasien_keluar_hidup_mati = $totals['pasien_dipindahkan'] + $totals['pasien_hidup'] + $totals['pasien_lain_lain'] + $totals['pasien_rujuk'] + $totals['pasien_aps'] + $totals['pasien_meninggal_kurang_dari_48_jam'] + $totals['pasien_meninggal_lebih_dari_48_jam'];
     
-            // Step 9: Calculate the indicators
-            $bor = round((($pasien_awal_total + $pasien_masuk_total + $pasien_pindahan_total) / ($bed_quantity * $days_in_month)) * 100);
-            $avlos = $pasien_keluar_hidup_mati > 0 ? round($pasien_lama_dirawat_total / $pasien_keluar_hidup_mati) : 0;
-            $toi = $pasien_keluar_hidup_mati > 0 ? round((($bed_quantity * $days_in_month) - ($pasien_awal_total + $pasien_masuk_total + $pasien_pindahan_total)) / $pasien_keluar_hidup_mati) : 0;
+            // Step 8: Calculate the indicators
+            $bor = round((($totals['pasien_awal'] + $totals['pasien_masuk'] + $totals['pasien_pindahan']) / ($bed_quantity * $days_in_month)) * 100);
+            $avlos = $pasien_keluar_hidup_mati > 0 ? round($totals['pasien_lama_dirawat'] / $pasien_keluar_hidup_mati) : 0;
+            $toi = $pasien_keluar_hidup_mati > 0 ? round((($bed_quantity * $days_in_month) - ($totals['pasien_awal'] + $totals['pasien_masuk'] + $totals['pasien_pindahan'])) / $pasien_keluar_hidup_mati) : 0;
             $bto = round($pasien_keluar_hidup_mati / $bed_quantity);
-            $gdr = $pasien_keluar_hidup_mati > 0 ? round((($pasien_meninggal_kurang_dari_48_jam_total + $pasien_meninggal_lebih_dari_48_jam_total) / $pasien_keluar_hidup_mati) * 1000) : 0;
-            $ndr = $pasien_keluar_hidup_mati > 0 ? round(($pasien_meninggal_lebih_dari_48_jam_total / $pasien_keluar_hidup_mati) * 1000) : 0;
+            $gdr = $pasien_keluar_hidup_mati > 0 ? round((($totals['pasien_meninggal_kurang_dari_48_jam'] + $totals['pasien_meninggal_lebih_dari_48_jam']) / $pasien_keluar_hidup_mati) * 1000) : 0;
+            $ndr = $pasien_keluar_hidup_mati > 0 ? round(($totals['pasien_meninggal_lebih_dari_48_jam'] / $pasien_keluar_hidup_mati) * 1000) : 0;
     
-            // Step 10: Return the calculated indicators and debug information
+            // Step 9: Return the result
             return [
                 'status' => 'success',
                 'indicators' => [
@@ -245,19 +248,12 @@ class Guest_model {
                     'GDR' => $gdr,
                     'NDR' => $ndr
                 ],
-                'debug_data' => [
-                    'pasien_awal' => $pasien_awal_total,
-                    'pasien_masuk' => $pasien_masuk_total,
-                    'pasien_pindahan' => $pasien_pindahan_total,
-                    'pasien_lama_dirawat' => $pasien_lama_dirawat_total,
-                    'pasien_meninggal_kurang_dari_48_jam' => $pasien_meninggal_kurang_dari_48_jam_total,
-                    'pasien_meninggal_lebih_dari_48_jam' => $pasien_meninggal_lebih_dari_48_jam_total,
+                'debug_data' => array_merge($totals, [
                     'days_in_month' => $days_in_month,
                     'bed quantity' => $bed_quantity,
                     'total discharges' => $pasien_keluar_hidup_mati
-                ]
+                ])
             ];
-    
         } catch (Exception $e) {
             return ['status' => 'error', 'message' => 'An error occurred: ' . $e->getMessage()];
         }
@@ -317,7 +313,7 @@ class Guest_model {
             if (!empty($missingDates)) {
                 return [
                     'status' => 'error',
-                    'message' => 'Data is missing for the following days: ' . implode(', ', $missingDates)
+                    'message' => 'Data tidak tersedia untuk tanggal di bawah ini : ' . implode(', ', $missingDates)
                 ];
             }
     
@@ -530,16 +526,13 @@ class Guest_model {
     }
 
     // calculate indicators rs monthly
-    public function calculateStatsMonthly($month) {
-        // Get the current year
-        $currentYear = date('Y');
-    
+    public function calculateStatsMonthly($month, $year) {
         // Ensure the month is properly formatted as two digits
         $month = str_pad($month, 2, '0', STR_PAD_LEFT);
-        
-        // Get the total number of days in the given month
-        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $currentYear);
-        $monthPattern = "$currentYear-$month-%"; // Format: YYYY-MM-%    
+    
+        // Get the number of days in the given month and year
+        $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+        $monthPattern = "$year-$month-%"; // Format: YYYY-MM-%
     
         // Step 1: Get all unique rooms from the users table (excluding admins)
         $queryRooms = "SELECT DISTINCT ruangan FROM users WHERE ruangan IS NOT NULL AND role != 'admin'";
@@ -549,26 +542,25 @@ class Guest_model {
             echo json_encode(['status' => 'error', 'message' => 'Failed to fetch room data']);
             return false;
         }
-        
+    
         $resultRooms = $stmtRooms->get_result();
         $rooms = [];
         while ($row = $resultRooms->fetch_assoc()) {
             $rooms[] = $row['ruangan'];
         }
     
-        // Step 2: Get all the days in the month
+        // Step 2: Generate list of all days in the given month and year
         $allDaysInMonth = [];
-        $currentDay = "$currentYear-$month-01";
+        $currentDay = "$year-$month-01";
         for ($i = 0; $i < $daysInMonth; $i++) {
             $allDaysInMonth[] = date('Y-m-d', strtotime("$currentDay +$i days"));
         }
-
-        // Step 3: Check for missing data for each room per day in the month
+    
+        // Step 3: Check for missing data for each room per day
         $missingData = [];
         foreach ($rooms as $room) {
             $missingDates = [];
             foreach ($allDaysInMonth as $day) {
-                // Query to check if data exists for this room and day
                 $queryCheck = "SELECT COUNT(*) AS dataCount FROM input_nurse i
                                JOIN users u ON i.user_id = u.user_id
                                WHERE u.ruangan = ? AND i.tanggal = ?";
@@ -583,19 +575,16 @@ class Guest_model {
                 $resultCheck = $stmtCheck->get_result();
                 $dataCheck = $resultCheck->fetch_assoc();
     
-                // If no data exists for this room and day, mark it as missing
                 if ($dataCheck['dataCount'] == 0) {
                     $missingDates[] = $day;
                 }
             }
     
-            // If there are missing dates for this room, store them in the missingData array
             if (!empty($missingDates)) {
                 $missingData[$room] = $missingDates;
             }
         }
     
-        // Step 4: If there are missing dates, return them
         if (!empty($missingData)) {
             echo json_encode([
                 'status' => 'error',
@@ -605,10 +594,7 @@ class Guest_model {
             return false;
         }
     
-        // Step 5: Calculate the monthly statistics (for all rooms combined)
-        $totalPatientDays = $totalDischarges = $totalDeaths = $totalDeaths48 = $totalPatientTreatment = 0;
-        
-        // Get total bed count inside the calculateStatsMonthly function
+        // Step 4: Get total bed count
         $queryBeds = "SELECT SUM(jumlah_bed) AS TotalBeds FROM bed";
         $stmtBeds = $this->conn->prepare($queryBeds);
         if (!$stmtBeds || !$stmtBeds->execute()) {
@@ -618,9 +604,9 @@ class Guest_model {
     
         $resultBeds = $stmtBeds->get_result();
         $bedData = $resultBeds->fetch_assoc();
-        $bedQuantity = (int) $bedData['TotalBeds']; // Bed quantity is constant for the month
+        $bedQuantity = (int) $bedData['TotalBeds'];
     
-        // Calculate statistics for the given month for all rooms
+        // Step 5: Calculate statistics for the month/year
         $queryStats = "
             SELECT 
                 SUM(pasien_awal + pasien_masuk + pasien_pindahan) AS PatientDays,
@@ -630,37 +616,44 @@ class Guest_model {
                 SUM(pasien_lama_dirawat) AS PatientTreatment
             FROM input_nurse i
             JOIN users u ON i.user_id = u.user_id
-            WHERE i.tanggal LIKE ? AND u.ruangan IS NOT NULL AND u.role != 'admin'";
+            WHERE MONTH(i.tanggal) = ? AND YEAR(i.tanggal) = ? AND u.ruangan IS NOT NULL AND u.role != 'admin'";
     
         $stmtStats = $this->conn->prepare($queryStats);
-        $stmtStats->bind_param("s", $monthPattern);
+        $stmtStats->bind_param("ii", $month, $year);
         if (!$stmtStats->execute()) {
             echo json_encode(['status' => 'error', 'message' => 'Execute failed: ' . $stmtStats->error]);
             return false;
         }
     
         $resultStats = $stmtStats->get_result();
-        while ($data = $resultStats->fetch_assoc()) {
-            $totalPatientDays += (int) $data['PatientDays'];
-            $totalDischarges += (int) $data['Discharges'];
-            $totalDeaths += (int) $data['Deaths'];
-            $totalDeaths48 += (int) $data['Deaths48'];
-            $totalPatientTreatment += (int) $data['PatientTreatment'];
-        }
+        $data = $resultStats->fetch_assoc();
     
-        // Step 6: Calculate statistics
-        $totalDays = $daysInMonth;
-        $BOR = ($totalPatientDays / ($bedQuantity * $totalDays)) * 100;
-        $AVLOS = $totalPatientDays / $totalDischarges;
-        $TOI = $totalPatientDays / $totalDischarges;
-        $BTO = $totalPatientDays / $bedQuantity;
-        $GDR = $totalDischarges / $totalPatientDays;
-        $NDR = $totalDeaths / $totalDischarges;
+        $totalPatientDays = (int) $data['PatientDays'];
+        $totalDischarges = (int) $data['Discharges'];
+        $totalDeaths = (int) $data['Deaths'];
+        $totalDeaths48 = (int) $data['Deaths48'];
+        $totalPatientTreatment = (int) $data['PatientTreatment'];
     
-        // Step 7: Return the calculated statistics
+        // Step 6: Calculate indicators
+        // $BOR = ($bedQuantity * $daysInMonth) > 0 ? ($totalPatientDays / ($bedQuantity * $daysInMonth)) * 100 : 0;
+        // $AVLOS = $totalDischarges > 0 ? $totalPatientTreatment / $totalDischarges : 0;
+        // $TOI = $totalDischarges > 0 ? (($bedQuantity * $daysInMonth) - $totalPatientDays) / $totalDischarges : 0;
+        // $BTO = $bedQuantity > 0 ? $totalDischarges / $bedQuantity : 0;
+        // $GDR = $totalPatientTreatment > 0 ? $totalDeaths / $totalPatientTreatment : 0;
+        // $NDR = $totalDischarges > 0 ? $totalDeaths48 / $totalDischarges : 0;
+    
+        $totalBedDays = $bedQuantity * $daysInMonth;
+        $BOR = $totalBedDays > 0 ? round(($totalPatientDays / $totalBedDays) * 100) : 0; // Bed Occupancy Rate
+        $AVLOS = $totalDischarges > 0 ? round($totalPatientTreatment / $totalDischarges) : 0; // Average Length of Stay
+        $TOI = $totalDischarges > 0 ? round(($totalBedDays - $totalPatientDays) / $totalDischarges) : 0; // Turnover Interval
+        $BTO = $bedQuantity > 0 ? round($totalDischarges / $bedQuantity) : 0; // Bed Turnover Rate
+        $GDR = $totalDischarges > 0 ? round(($totalDeaths / $totalDischarges) * 1000) : 0; // Gross Death Rate
+        $NDR = $totalDischarges > 0 ? round(($totalDeaths48 / $totalDischarges) * 1000) : 0; // Net Death Rate
+
+        // Step 7: Return final result
         $stats = [
             'month' => $month,
-            'year' => $currentYear,
+            'year' => $year,
             'BOR' => $BOR,
             'AVLOS' => $AVLOS,
             'TOI' => $TOI,
@@ -668,8 +661,17 @@ class Guest_model {
             'GDR' => $GDR,
             'NDR' => $NDR
         ];
+
+        $debug = [
+            'totalDeaths' => $totalDeaths,
+            'totalDischarges' => $totalDischarges
+        ];
     
-        echo json_encode(['status' => 'success', 'data' => $stats]);
+        echo json_encode([
+            'status' => 'success', 
+            'data' => $stats,
+            // 'debug' => $debug
+        ]);
         return true;
     }
 
@@ -686,7 +688,7 @@ class Guest_model {
     
         // Ensure the start date is not after the end date
         if ($startDateObj > $endDateObj) {
-            return ['status' => 'error', 'message' => 'Start date cannot be after the end date.'];
+            return ['status' => 'error', 'message' => 'Start date tidak boleh setelah end date.'];
         }
     
         // Step 1: Get all unique rooms from users table (excluding admins)
