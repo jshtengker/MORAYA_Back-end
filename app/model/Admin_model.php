@@ -276,19 +276,21 @@ class Admin_model {
             $pdf->Ln(10);
 
             $headers = [
-                "tanggal", "pasien_awal", "pasien_masuk", "pasien_pindahan", "pasien_dipindahkan",
-                "pasien_hidup", "pasien_rujuk", "pasien_aps", "pasien_lain_lain",
+                "tanggal", "pasien_awal", "pasien_masuk", "pasien_pindahan", "jumlah_pasien_masuk_ruangan",
+                "pasien_dipindahkan",
+                "pasien_hidup", "pasien_rujuk", "pasien_aps", "pasien_lain_lain", "jumlah_pasien_keluar_hidup",
                 "pasien_meninggal_kurang_dari_48_jam", "pasien_meninggal_lebih_dari_48_jam",
-                "jumlah_pasien_masuk_ruangan", "jumlah_pasien_keluar_hidup",
                 "jumlah_pasien_keluar_meninggal", "total_pasien_keluar",
-                "pasien_yang_masih_dirawat", "jumlah_hari_perawatan"
+                "pasien_yang_masih_dirawat", "pasien_lama_dirawat", "pasien_keluar_masuk_hari_sama", 
+                "jumlah_hari_perawatan", "updated_at"
             ];
 
             $headerLabels = [
-                "tanggal" => "Tanggal",
+                "tanggal" => "Tanggal\nInput",
                 "pasien_awal" => "Pasien\nAwal",
                 "pasien_masuk" => "Pasien\nMasuk",
                 "pasien_pindahan" => "Pasien\nPindahan",
+                "jumlah_pasien_masuk_ruangan" => "Jumlah\nMasuk",
                 "pasien_dipindahkan" => "Pasien\nDipindahkan",
                 "pasien_hidup" => "Pasien\nHidup",
                 "pasien_rujuk" => "Pasien\nRujuk",
@@ -296,12 +298,14 @@ class Admin_model {
                 "pasien_lain_lain" => "Pasien\nLain-lain",
                 "pasien_meninggal_kurang_dari_48_jam" => "Meninggal\n kurang dari 48 Jam",
                 "pasien_meninggal_lebih_dari_48_jam" => "Meninggal\n lebih dari 48 Jam",
-                "jumlah_pasien_masuk_ruangan" => "Jumlah\nMasuk",
-                "jumlah_pasien_keluar_hidup" => "Keluar\nHidup",
-                "jumlah_pasien_keluar_meninggal" => "Keluar\nMeninggal",
+                "jumlah_pasien_keluar_hidup" => "Total Keluar\nHidup",
+                "jumlah_pasien_keluar_meninggal" => "Total Keluar\nMeninggal",
                 "total_pasien_keluar" => "Total\nKeluar",
                 "pasien_yang_masih_dirawat" => "Masih\nDirawat",
-                "jumlah_hari_perawatan" => "Hari\nPerawatan"
+                "pasien_lama_dirawat" => "Lama\nDirawat",
+                "pasien_keluar_masuk_hari_sama" => "Keluar masuk\nhari sama",
+                "jumlah_hari_perawatan" => "Hari\nPerawatan",
+                "updated_at" => "Tanggal\nDiperbarui"
             ];
 
             $pdf->SetFont('Arial', 'B', 8);
@@ -330,11 +334,15 @@ class Admin_model {
                 $lain = (int)$row['pasien_lain_lain'];
                 $meninggal_48 = (int)$row['pasien_meninggal_kurang_dari_48_jam'];
                 $meninggal_lebih = (int)$row['pasien_meninggal_lebih_dari_48_jam'];
+                $updated_at = $row['updated_at'];
+                $lama_dirawat = (int)$row['pasien_lama_dirawat'];
+                $keluar_masuk_hari_sama = (int)$row['pasien_keluar_masuk_hari_sama'];
+
 
                 $jumlah_masuk = $awal + $masuk + $pindahan;
                 $keluar_hidup = $dipindahkan + $hidup + $rujuk + $aps + $lain;
                 $keluar_meninggal = $meninggal_48 + $meninggal_lebih;
-                $total_keluar = $dipindahkan + $hidup + $aps + $lain + $meninggal_48 + $meninggal_lebih;
+                $total_keluar = $dipindahkan + $hidup + $rujuk + $aps + $lain + $meninggal_48 + $meninggal_lebih;
                 $masih_dirawat = ($awal + $masuk + $dipindahkan) - ($dipindahkan + $hidup + $rujuk + $aps + $lain + $meninggal_48 + $meninggal_lebih);
                 $jumlah_hari_perawatan = $awal + $masuk + $pindahan;
 
@@ -350,7 +358,10 @@ class Admin_model {
                     "jumlah_pasien_keluar_meninggal" => $keluar_meninggal,
                     "total_pasien_keluar" => $total_keluar,
                     "pasien_yang_masih_dirawat" => $masih_dirawat,
-                    "jumlah_hari_perawatan" => $jumlah_hari_perawatan
+                    "jumlah_hari_perawatan" => $jumlah_hari_perawatan,
+                    "updated_at" => $updated_at,
+                    "pasien_lama_dirawat" => $lama_dirawat,
+                    "pasien_keluar_masuk_hari_sama" => $keluar_masuk_hari_sama
                 ];
 
                 foreach ($values as $key => $val) {
